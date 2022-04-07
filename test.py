@@ -1,4 +1,4 @@
-from NMQN import NMQN
+from NMQN_old import NMQN
 import numpy as np
 
 endog = 5 + np.arange(0, 100) * 0.5 + np.random.normal(100)

@@ -12,7 +12,7 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 import data_simulation
-
+import qrnn_plots
 # kernel regularization L2 function
 
 class QRNN(tf.keras.Model):
@@ -33,19 +33,20 @@ class QRNN(tf.keras.Model):
 def loss_function(y, output, quantile):
     error = tf.subtract(y, output)
     loss = tf.reduce_mean(tf.maximum(quantile * error, (quantile - 1) * error), axis=-1)
+    #print(loss)
     return loss
 
 # Define the quantiles we’d like to estimate
-quantile =  0.9
-input, output = data_simulation.simulate_gaussian_data(1000, quantile)
+quantile =  0.01
+input, true_quantiles = data_simulation.simulate_gaussian_ar_garch(500, quantile, 0.9, 0.7, 0.25)
 
 tf_loss = lambda x, y: loss_function(x, y, quantile)
 
-X_train, X_test, y_train, y_test = train_test_split(input, output, test_size=0.2, random_state=0)
+X_train, X_test, quantiles_in_sample, quantiles_out_sample = train_test_split(input, true_quantiles,  test_size=0.2, random_state=0)
 
-print(X_train[:5], y_train[:5])
+print(X_train[:5])
 
-model = QRNN(input, output, objectivename='QRNN_model')
+model = QRNN(input, input, objectivename='QRNN_model')
 #####  Compile keras model
 model.compile(optimizer='adam', # default='rmsprop', an algorithm to be used in backpropagation
               loss=tf_loss, # Loss function to be optimized. A string (name of loss function), or a tf.keras.losses.Loss instance.
@@ -55,7 +56,7 @@ model.compile(optimizer='adam', # default='rmsprop', an algorithm to be used in 
 
 ##### Fit keras model on the dataset
 model.fit(X_train, # input data
-          y_train, # target data
+          X_train, # target data
           #batch_size=30, # Number of samples per gradient update. If unspecified, batch_size will default to 32.
           epochs=100, # default=1, Number of epochs to train the model. An epoch is an iteration over the entire x and y data provided
           verbose='auto', # default='auto', ('auto', 0, 1, or 2). Verbosity mode. 0 = silent, 1 = progress bar, 2 = one line per epoch. 'auto' defaults to 1 for most cases, but 2 when used with ParameterServerStrategy.
@@ -65,13 +66,15 @@ model.fit(X_train, # input data
           #class_weight={0 : 0.3, 1 : 0.7}, # default=None, Optional dictionary mapping class indices (integers) to a weight (float) value, used for weighting the loss function (during training only). This can be useful to tell the model to "pay more attention" to samples from an under-represented class.
           #sample_weight=None, # default=None, Optional Numpy array of weights for the training samples, used for weighting the loss function (during training only).
           initial_epoch=0, # Integer, default=0, Epoch at which to start training (useful for resuming a previous training run).
-          steps_per_epoch=50, # Integer or None, default=None, Total number of steps (batches of samples) before declaring one epoch finished and starting the next epoch. When training with input tensors such as TensorFlow data tensors, the default None is equal to the number of samples in your dataset divided by the batch size, or 1 if that cannot be determined.
+          steps_per_epoch=10, # Integer or None, default=None, Total number of steps (batches of samples) before declaring one epoch finished and starting the next epoch. When training with input tensors such as TensorFlow data tensors, the default None is equal to the number of samples in your dataset divided by the batch size, or 1 if that cannot be determined.
           workers=4, # default=1, Used for generator or keras.utils.Sequence input only. Maximum number of processes to spin up when using process-based threading. If unspecified, workers will default to 1.
           use_multiprocessing=True, # default=False, Used for generator or keras.utils.Sequence input only. If True, use process-based threading. If unspecified, use_multiprocessing will default to False.
          )
 
 print("Evaluate")
-result = model.evaluate(X_train, y_train)
+result = model.evaluate(X_train, X_train)
 print(list(zip(model.metrics_names, result)))
 print(model.predict(X_test))
-print(y_test)
+print(quantiles_out_sample)
+
+qrnn_plots.plot_results(X_test, quantiles_out_sample, model.predict(X_test), quantile)

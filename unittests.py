@@ -1,5 +1,5 @@
 import unittest
-import NMQN
+import NMQN_old
 import numpy
 
 
