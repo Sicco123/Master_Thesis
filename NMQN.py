@@ -1,5 +1,7 @@
 import tensorflow as tf
 from tensorflow import keras
+from keras.layers import Layer
+from keras import activations
 from keras.models import Sequential # for creating a linear stack of layers for our Neural Network
 from keras import Input # for instantiating a keras tensor
 from keras.layers import Dense # for creating regular densely-connected NN layers.
@@ -15,29 +17,70 @@ import data_simulation
 import qrnn_plots
 # kernel regularization L2 function
 
-class layer():
-    def __init__(self, input, input_dim, nodes, activation):
-        self.theta = tf.Variable(tf.random_normal([input_dim, nodes]))
-        self.bias = tf.Variable(tf.random_normal(nodes))
-        self.layer = activation(tf.matmul(input, self.theta)+self.bias)
+class simple_dense(Layer):
+    def __init__(self, units =32, activation = None):
+        super(simple_dense, self).__init__()
+        self.units = units
+        self.activation = activations.get(activation)
 
-class output_layer():
-    def __init__(self, input_dim, number_of_quantiles):
-        delta_coef_matrix = tf.Variable(tf.random_normal([input_dim, number_of_quantiles]))
-        delta_0_matrix = tf.Variable(tf.random_normal([1, number_of_quantiles]))
-        delta_matrix = tf.concat([delta_0_matrix, delta_coef_matrix], axis = 0)
+    def build(self, input_shape):
+        theta_init = tf.random_normal_initializer()
+        self.theta = tf.Variable(initial_value = theta_init(shape = (input_shape[-1], self.units),
+                                 dtype = 'float32') ,
+                                 trainable = True)
+        bias_init = tf.zeros_initializer()
+        self.bias = tf.Variable(initial_value = bias_init(shape=(self.units,),
+                                dtype = 'float32'),
+                                trainable = True)
+
+    def call(self, inputs):
+        outputs = tf.matmul(inputs, self.theta)+self.bias
+        if self.activation is not None:
+            outputs = self.activation(outputs)
+        return outputs
+
+class output_layer(Layer):
+    def __init__(self, units = 32, activation = None, number_of_quantiles = 1):
+        super(output_layer, self).__init__()
+        self.units = units
+        self.activation = activations.get(activation)
+        self.number_of_quantiles = number_of_quantiles
+
+    def build(self, input_shape):
+        ### Build Theta weights
+        theta_init = tf.random_normal_initializer()
+        self.theta = tf.Variable(initial_value=theta_init(shape=(input_shape[-1], self.units),
+                                                          dtype='float32'),
+                                 trainable=True)
+
+        ### Build Bias weights
+        bias_init = tf.zeros_initializer()
+        self.bias = tf.Variable(initial_value=bias_init(shape=(self.units,),
+                                                        dtype='float32'),
+                                trainable=True)
+
+        ### Build delta
+        delta_coef_matrix = tf.Variable(tf.random_normal([self.units, self.number_of_quantiles]))
+        delta_0_matrix = tf.Variable(tf.random_normal([1, self.number_of_quantiles]))
+        delta_matrix = tf.concat([delta_0_matrix, delta_coef_matrix], axis=0)
 
         self.beta_matrix = tf.transpose(tf.cumsum(tf.transpose(delta_matrix)))
 
-        delta_vec = delta_matrix[1:input_dim, 1:number_of_quantiles]
-        delta_0_vec = delta_matrix[0, 1:number_of_quantiles]
+        delta_vec = delta_matrix[1:self.units, 1:self.number_of_quantiles]
+        delta_0_vec = delta_matrix[0, 1:self.number_of_quantiles]
         delta_minus_vec = tf.maximum(0, -delta_vec)
         self.delta_minus_vec_sum = tf.reduce_sum(delta_minus_vec, 0)
         self.delta_0_vec_clipped = tf.clip_by_value(delta_0_vec,
-                                                    clip_value_min = tf.reshape(self.delta_minus_vec_sum, np.shape(delta_0_vec)),
-                                                    clip_value_max = tf.convert_to_tensor((np.ones(np.shape(delta_0_vec)) * np.inf))
-                                                    )
+                                                    clip_value_min=tf.reshape(self.delta_minus_vec_sum,
+                                                                              np.shape(delta_0_vec)),
+                                                    clip_value_max=tf.convert_to_tensor(
+                                                        (np.ones(np.shape(delta_0_vec)) * np.inf)))
 
+    def call(self, inputs):
+        outputs = tf.matmul(inputs, self.theta) + self.bias
+        if self.activation is not None:
+            outputs = self.activation(outputs)
+        return outputs
 
 
 def objective_function(X, y, quantiles_tf, quantiles, penalty, lambda_obj, input, input_dim, layer_1_obj, layer_2_obj, output_obj):
