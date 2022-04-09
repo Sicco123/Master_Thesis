@@ -104,10 +104,10 @@ class last_layer(layers.Layer):
 
     def call(self, inputs, **kwargs):
         predicted_y_no_penalty = tf.matmul(inputs, self.beta_matrix[1:(self.input_shape_1 + 1)])
-        predicted_y_modified = predicted_y_no_penalty + tf.cumsum(tf.concat([self.beta_matrix[1, 1],
-                                                                             self.delta_0_vec_clipped], axis=1),
-                                                                  axis=1)
-        print(predicted_y_modified)
+
+        predicted_y_modified = predicted_y_no_penalty + tf.cumsum(tf.concat([self.beta_matrix[1:2, 1],
+                                                                             self.delta_0_vec_clipped], axis=0),
+                                                                  axis=0)
         return predicted_y_no_penalty, predicted_y_modified
 
 
@@ -130,8 +130,12 @@ class QRNN(tf.keras.Model):
 
 
 def objective_function(predicted_y, output_y, quantiles):
+    print(predicted_y)
+    print(output_y)
+
     quantile_length = len(quantiles)
     quantiles_tf = tf.convert_to_tensor(quantiles)
+
 
     output_y_tiled = tf.tile(output_y, (quantile_length, 1))
     predicted_y_tiled = tf.reshape(tf.transpose(predicted_y), output_y_tiled.shape)
