@@ -33,3 +33,10 @@ def simulate_gaussian_ar_garch(length, quantile, ar_coef, garch_p_coef, garch_q_
         quantiles[t] = output[t] + np.sqrt(volatility[t]) * quantiles[t]
 
     return  output[init_len:], quantiles[init_len:]
+
+def moon_data(n, input_dim):
+    x_data = np.random.uniform(-1,1, [n,input_dim])
+    sinx = np.sin(np.pi * x_data)/(np.pi * x_data)
+    ep = np.random.normal(loc = 0, scale=0.1 * np.exp(1 - x_data))  ## example 1
+    y_data = sinx + ep
+    return x_data, y_data
