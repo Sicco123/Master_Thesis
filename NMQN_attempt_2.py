@@ -6,7 +6,7 @@ import data_simulation
 import numpy as np
 from keras.layers import Dense  # for creating regular densely-connected NN layers.
 from keras.layers import Flatten  # to flatten the input shape
-
+import matplotlib.pyplot as plt
 #
 # class Sampling(layers.Layer):
 #     """Uses (z_mean, z_log_var) to sample z, the vector encoding a digit."""
@@ -130,18 +130,17 @@ class QRNN(tf.keras.Model):
 
 
 def objective_function(predicted_y, output_y, quantiles):
-    print(predicted_y)
-    print(output_y)
-
     quantile_length = len(quantiles)
-    quantiles_tf = tf.convert_to_tensor(quantiles)
+    quantile_tf = tf.convert_to_tensor(quantiles, dtype='float32')
+    quantile_tf_tiled = tf.repeat(tf.transpose(quantile_tf), [len(output_y)])
 
+    output_y = tf.cast(output_y, dtype = 'float32')
+    output_y_tiled = tf.tile(output_y, [quantile_length])
 
-    output_y_tiled = tf.tile(output_y, (quantile_length, 1))
     predicted_y_tiled = tf.reshape(tf.transpose(predicted_y), output_y_tiled.shape)
     diff_y = output_y_tiled - predicted_y_tiled
 
-    quantile_loss = tf.reduce_mean(diff_y * (quantiles_tf - (tf.sign(-diff_y) + 1) / 2))
+    quantile_loss = tf.reduce_mean(diff_y * (quantile_tf_tiled - (tf.sign(-diff_y) + 1) / 2))
 
     objective_function_value = quantile_loss
 
@@ -166,7 +165,7 @@ def main():
     train_dataset = train_dataset.shuffle(buffer_size=1024).batch(64)
 
 
-    epochs = 2
+    epochs = 1000
 
     # Iterate over epochs.
     for epoch in range(epochs):
@@ -190,6 +189,13 @@ def main():
 
             if step % 100 == 0:
                 print("step %d: mean loss = %.4f" % (step, loss_metric.result()))
+
+    print("Evaluate")
+    y, y_modified = nmqn(x_train)
+
+    plt.plot(y_train)
+    plt.plot(y_modified)
+    plt.show()
 
 
 if __name__ == "__main__":
