@@ -2,9 +2,9 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-def simulate_gaussian_data(length, quantile):
-    data = np.array([np.random.normal(0, 0.1) for i in range(0, length)])
-    true_quantiles = stats.norm.ppf(quantile)*(np.ones(length)*0.1)
+def simulate_gaussian_data(length, quantiles):
+    data = np.random.normal(0, 0.1, length)
+    true_quantiles = stats.norm.ppf(quantiles)*(np.ones((length, len(quantiles)))*0.1)
     return data, true_quantiles
 
 def simulate_gaussian_ar_garch(length, quantile, ar_coef, garch_p_coef, garch_q_coef):

@@ -7,74 +7,6 @@ import numpy as np
 from keras.layers import Dense  # for creating regular densely-connected NN layers.
 from keras.layers import Flatten  # to flatten the input shape
 import matplotlib.pyplot as plt
-#
-# class Sampling(layers.Layer):
-#     """Uses (z_mean, z_log_var) to sample z, the vector encoding a digit."""
-#
-#     def call(self, inputs):
-#         z_mean, z_log_var = inputs
-#         batch = tf.shape(z_mean)[0]
-#         dim = tf.shape(z_mean)[1]
-#         epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
-#         return z_mean + tf.exp(0.5 * z_log_var) * epsilon
-#
-#
-# class Encoder(layers.Layer):
-#     """Maps MNIST digits to a triplet (z_mean, z_log_var, z)."""
-#
-#     def __init__(self, latent_dim=32, intermediate_dim=64, name="encoder", **kwargs):
-#         super(Encoder, self).__init__(name=name, **kwargs)
-#         self.dense_proj = layers.Dense(intermediate_dim, activation="relu")
-#         self.dense_mean = layers.Dense(latent_dim)
-#         self.dense_log_var = layers.Dense(latent_dim)
-#         self.sampling = Sampling()
-#
-#     def call(self, inputs):
-#         x = self.dense_proj(inputs)
-#         z_mean = self.dense_mean(x)
-#         z_log_var = self.dense_log_var(x)
-#         z = self.sampling((z_mean, z_log_var))
-#         return z_mean, z_log_var, z
-#
-#
-# class Decoder(layers.Layer):
-#     """Converts z, the encoded digit vector, back into a readable digit."""
-#
-#     def __init__(self, original_dim, intermediate_dim=64, name="decoder", **kwargs):
-#         super(Decoder, self).__init__(name=name, **kwargs)
-#         self.dense_proj = layers.Dense(intermediate_dim, activation="relu")
-#         self.dense_output = layers.Dense(original_dim, activation="sigmoid")
-#
-#     def call(self, inputs):
-#         x = self.dense_proj(inputs)
-#         return self.dense_output(x)
-#
-#
-# class VariationalAutoEncoder(keras.Model):
-#     """Combines the encoder and decoder into an end-to-end model for training."""
-#
-#     def __init__(
-#             self,
-#             original_dim,
-#             intermediate_dim=64,
-#             latent_dim=32,
-#             name="autoencoder",
-#             **kwargs
-#     ):
-#         super(VariationalAutoEncoder, self).__init__(name=name, **kwargs)
-#         self.original_dim = original_dim
-#         self.encoder = Encoder(latent_dim=latent_dim, intermediate_dim=intermediate_dim)
-#         self.decoder = Decoder(original_dim, intermediate_dim=intermediate_dim)
-#
-#     def call(self, inputs):
-#         z_mean, z_log_var, z = self.encoder(inputs)
-#         reconstructed = self.decoder(z)
-#         # Add KL divergence regularization loss.
-#         kl_loss = -0.5 * tf.reduce_mean(
-#             z_log_var - tf.square(z_mean) - tf.exp(z_log_var) + 1
-#         )
-#         self.add_loss(kl_loss)
-#         return reconstructed
 
 
 class last_layer(layers.Layer):
@@ -86,21 +18,21 @@ class last_layer(layers.Layer):
     def build(self, input_shape):
         self.input_shape_1 = input_shape[-1]
         ### Build delta
-        delta_coef_matrix = tf.Variable(tf.random.normal(shape = [self.input_shape_1, self.number_of_quantiles]))
+        self.delta_coef_matrix = tf.Variable(tf.random.normal(shape = [self.input_shape_1, self.number_of_quantiles]))
         delta_0_matrix = tf.Variable(tf.random.normal(shape=[1, self.number_of_quantiles]))
-        delta_matrix = tf.concat([delta_0_matrix, delta_coef_matrix], axis=0)
+        delta_matrix = tf.concat([delta_0_matrix, self.delta_coef_matrix], axis=0)
 
         self.beta_matrix = tf.transpose(tf.cumsum(tf.transpose(delta_matrix)))
         delta_vec = delta_matrix[1:(self.input_shape_1+1), 1:self.number_of_quantiles]
-        delta_0_vec = delta_matrix[0, 1:self.number_of_quantiles]
+        self.delta_0_vec = delta_matrix[0, 1:self.number_of_quantiles]
         delta_minus_vec = tf.maximum(0, -delta_vec)
         self.delta_minus_vec_sum = tf.reduce_sum(delta_minus_vec, 0)
 
-        self.delta_0_vec_clipped = tf.clip_by_value(delta_0_vec,
+        self.delta_0_vec_clipped = tf.clip_by_value(self.delta_0_vec,
                                                     clip_value_min=tf.reshape(self.delta_minus_vec_sum,
-                                                                              delta_0_vec.shape),
+                                                                              self.delta_0_vec.shape),
                                                     clip_value_max=tf.convert_to_tensor(
-                                                        (np.ones(np.shape(delta_0_vec)) * np.inf), dtype = 'float32'))
+                                                        (np.ones(np.shape(self.delta_0_vec)) * np.inf), dtype = 'float32'))
 
     def call(self, inputs, **kwargs):
         predicted_y_no_penalty = tf.matmul(inputs, self.beta_matrix[1:(self.input_shape_1 + 1)])
@@ -108,6 +40,11 @@ class last_layer(layers.Layer):
         predicted_y_modified = predicted_y_no_penalty + tf.cumsum(tf.concat([self.beta_matrix[1:2, 1],
                                                                              self.delta_0_vec_clipped], axis=0),
                                                                   axis=0)
+
+        l1_penalty = tf.reduce_mean(self.delta_coef_matrix)
+        self.add_loss(l1_penalty)
+        delta_penalty = tf.reduce_mean(tf.abs(self.delta_0_vec - self.delta_0_vec_clipped))
+        self.add_loss(delta_penalty)
         return predicted_y_no_penalty, predicted_y_modified
 
 
@@ -116,8 +53,8 @@ class QRNN(tf.keras.Model):
     def __init__(self, hidden_dim_1, hidden_dim_2, output_dim):
         super().__init__()
         self.layer_1 = Flatten()
-        self.layer_2 = Dense(units=hidden_dim_1, activation="sigmoid")  # Choose correct number of units
-        self.layer_3 = Dense(units=hidden_dim_2, activation="sigmoid")
+        self.layer_2 = Dense(units=hidden_dim_1, activation="sigmoid", kernel_regularizer = tf.keras.regularizers.L1(1))  # Choose correct number of units
+        self.layer_3 = Dense(units=hidden_dim_2, activation="sigmoid", kernel_regularizer = tf.keras.regularizers.L1(1))
         self.layer_4 = last_layer(number_of_quantiles=output_dim, activation="sigmoid")
         # possible add "Dropout" to prevent overfitting
 
@@ -149,7 +86,9 @@ def objective_function(predicted_y, output_y, quantiles):
 
 def main():
     original_dim = 640
-    learning_rate = 0.005
+    learning_rate = 0.01
+    penalty_1 = 0.0001
+    penalty_2 = 0.01
     quantiles = [0.1, 0.5, 0.9]
     nmqn = QRNN(4, 4, len(quantiles))
 
@@ -158,7 +97,9 @@ def main():
 
     loss_metric = tf.keras.metrics.Mean()
 
-    x_train, y_train = data_simulation.moon_data(original_dim, 1)
+    x_train, true_quantiles = data_simulation.simulate_gaussian_data(original_dim, quantiles)#data_simulation.moon_data(original_dim, 1)
+    y_train = x_train
+
     data = np.column_stack((y_train, x_train))
 
     train_dataset = tf.data.Dataset.from_tensor_slices(data)
@@ -180,7 +121,7 @@ def main():
                 predicted_y, predicted_y_modified = nmqn(x_train_batch)
                 # Compute reconstruction loss
                 loss = loss_fn(predicted_y, y_train_batch)
-                #loss += sum(nmqn.losses)  # Add KLD regularization loss
+                loss += penalty_1*sum(nmqn.losses[0:3])+penalty_2*(nmqn.losses[3])  # Add KLD regularization loss
 
             grads = tape.gradient(loss, nmqn.trainable_weights)
             optimizer.apply_gradients(zip(grads, nmqn.trainable_weights))
@@ -193,8 +134,9 @@ def main():
     print("Evaluate")
     y, y_modified = nmqn(x_train)
 
-    plt.plot(y_train)
-    plt.plot(y_modified)
+    plt.plot(x_train)
+    plt.plot(y_modified[:,0])
+    plt.plot(true_quantiles[:,0])
     plt.show()
 
 
