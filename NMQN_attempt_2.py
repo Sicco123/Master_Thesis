@@ -16,6 +16,7 @@ class last_layer(layers.Layer):
         self.number_of_quantiles = number_of_quantiles
 
     def build(self, input_shape):
+
         self.input_shape_1 = input_shape[-1]
         ### Build delta
         self.delta_coef_matrix = tf.Variable(tf.random.normal(shape = [self.input_shape_1, self.number_of_quantiles]))
@@ -35,15 +36,19 @@ class last_layer(layers.Layer):
                                                         (np.ones(np.shape(self.delta_0_vec)) * np.inf), dtype = 'float32'))
 
     def call(self, inputs, **kwargs):
-        predicted_y_no_penalty = tf.matmul(inputs, self.beta_matrix[1:(self.input_shape_1 + 1)])
+        predicted_y_no_penalty = tf.matmul(inputs, self.beta_matrix[1:(self.input_shape_1 + 1),:]) + self.beta_matrix[1,:]
 
-        predicted_y_modified = predicted_y_no_penalty + tf.cumsum(tf.concat([self.beta_matrix[1:2, 1],
+        predicted_y_modified = tf.matmul(inputs, self.beta_matrix[1:(self.input_shape_1 + 1),:]) + tf.cumsum(tf.concat([self.beta_matrix[1:2, 1],
                                                                              self.delta_0_vec_clipped], axis=0),
                                                                   axis=0)
 
-        l1_penalty = tf.reduce_mean(self.delta_coef_matrix)
+        l1_penalty = tf.reduce_mean(self.delta_coef_matrix**2)
         self.add_loss(l1_penalty)
-        delta_penalty = tf.reduce_mean(tf.abs(self.delta_0_vec - self.delta_0_vec_clipped))
+
+        delta_constraint = self.delta_0_vec_clipped - self.delta_minus_vec_sum
+        delta_clipped = tf.clip_by_value(delta_constraint, clip_value_min=10**(-20), clip_value_max=np.Inf)
+
+        delta_penalty = tf.reduce_mean(tf.abs(delta_clipped))#tf.reduce_mean(tf.abs(self.delta_0_vec - self.delta_0_vec_clipped))
         self.add_loss(delta_penalty)
         return predicted_y_no_penalty, predicted_y_modified
 
@@ -87,10 +92,10 @@ def objective_function(predicted_y, output_y, quantiles):
 def main():
     original_dim = 640
     learning_rate = 0.01
-    penalty_1 = 0.0001
-    penalty_2 = 0.01
+    penalty_1 = 0.0005
+    penalty_2 = 5
     quantiles = [0.1, 0.5, 0.9]
-    nmqn = QRNN(4, 4, len(quantiles))
+    nmqn = QRNN(16, 16, len(quantiles))
 
     optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
     loss_fn = lambda x, z: objective_function(x, z, quantiles)
@@ -106,7 +111,7 @@ def main():
     train_dataset = train_dataset.shuffle(buffer_size=1024).batch(64)
 
 
-    epochs = 1000
+    epochs = 2000
 
     # Iterate over epochs.
     for epoch in range(epochs):
@@ -121,6 +126,7 @@ def main():
                 predicted_y, predicted_y_modified = nmqn(x_train_batch)
                 # Compute reconstruction loss
                 loss = loss_fn(predicted_y, y_train_batch)
+
                 loss += penalty_1*sum(nmqn.losses[0:3])+penalty_2*(nmqn.losses[3])  # Add KLD regularization loss
 
             grads = tape.gradient(loss, nmqn.trainable_weights)
@@ -139,6 +145,10 @@ def main():
     plt.plot(true_quantiles[:,0])
     plt.show()
 
+    print(y[:,0])
+    print(y_modified[:,0])
+    print(y_modified[:,1])
+    print(y_modified[:,2])
 
 if __name__ == "__main__":
     main()
